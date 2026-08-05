@@ -1,0 +1,113 @@
+# ESPHome 配置示例：ESP32 读取 AFU 体脂秤并上报 Home Assistant
+#
+# 使用方式：
+#   1. 将本仓库的 components/ 目录放到你的 ESPHome 配置目录（或通过 external_components 引用）
+#   2. 修改下面的 wifi / api / ble_client mac 地址
+#   3. esphome run scale.yaml
+
+esphome:
+  name: body-scale
+  friendly_name: 体脂秤
+
+# 引用本仓库的自定义组件
+# ⚠️ 关键：`type: local` 的 `path` 是相对于【本配置文件所在目录】解析的。
+# 请把本仓库的 `components/` 文件夹放到与 scale.yaml 相同的目录下，例如：
+#
+#   /config/esphome/
+#   ├── scale.yaml
+#   └── components/
+#       └── afu_scale/
+#
+# 若 components 目录在别处，请改用绝对路径，例如：
+#   path: /config/components
+external_components:
+  - source:
+      type: local
+      path: components
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: "u537D8H8Ks77+mWHgkyXHG+Fxy6PNiec8H1Rb4wuo1g="
+
+ota:
+  - platform: esphome
+
+logger:
+  level: DEBUG
+
+# 蓝牙跟踪：负责广播监听（免连接读取体重）与 GATT 连接
+esp32_ble_tracker:
+  scan_parameters:
+    interval: 320ms
+    window: 160ms
+    active: true
+
+# BLE 客户端：连接本体脂秤，发送握手包并订阅 FFB2 通知
+ble_client:
+  - mac_address: "D0:5C:00:2C:01:D7"   # 改为你的体脂秤 MAC 地址
+    id: scale_client
+
+sensor:
+  - platform: afu_scale
+    ble_client_id: scale_client
+    name: "体重"
+    id: scale_weight
+    unit_of_measurement: kg
+    accuracy_decimals: 2
+    device_class: weight
+    # ---- BIA 计算所需个人参数（请改为你自己的）----
+    height_cm: 165
+    sex: male
+    age: 23
+    impedance:
+      name: "电阻抗Impedance"
+      id: scale_impedance
+      unit_of_measurement: "Ω"
+      accuracy_decimals: 0
+    stable:
+      id: scale_stable
+      name: "称重稳定Stable"
+      accuracy_decimals: 0
+    bmi:
+      name: "BMI"
+      id: scale_bmi
+      accuracy_decimals: 1
+    body_fat:
+      name: "体脂率Body Fat"
+      id: scale_body_fat
+      unit_of_measurement: "%"
+      accuracy_decimals: 1
+    water:
+      name: "水分率Water"
+      id: scale_water
+      unit_of_measurement: "%"
+      accuracy_decimals: 1
+    muscle:
+      name: "肌肉量Muscle"
+      id: scale_muscle
+      unit_of_measurement: kg
+      accuracy_decimals: 1
+      device_class: weight
+    protein:
+      name: "蛋白质率Protein"
+      id: scale_protein
+      unit_of_measurement: "%"
+      accuracy_decimals: 1
+    bone:
+      name: "骨量Bone"
+      id: scale_bone
+      unit_of_measurement: kg
+      accuracy_decimals: 2
+      device_class: weight
+
+# 提示：如需在 HA 中基于"稳定状态"过滤，可在自动化中读取 sensor.scale_stable
+# （数值 > 0.5 表示称重已稳定）。
