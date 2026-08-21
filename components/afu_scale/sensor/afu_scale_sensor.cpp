@@ -38,6 +38,12 @@ void AFUScale::setup() {
 
 void AFUScale::dump_config() {
   ESP_LOGCONFIG(TAG, "AFU Scale:");
+  // 输出配置中填写的体脂秤 MAC 地址
+  if (this->parent() != nullptr) {
+    ESP_LOGCONFIG(TAG, "  MAC Address: %s", this->parent()->address_str());
+  } else {
+    ESP_LOGCONFIG(TAG, "  MAC Address: (not connected)");
+  }
   ESP_LOGCONFIG(TAG, "  Height: %.0f cm, Sex: %s, Age: %d", this->height_cm_,
                 this->male_ ? "male" : "female", this->age_);
   LOG_SENSOR("  ", "Weight (main)", this);
@@ -94,12 +100,15 @@ bool AFUScale::parse_adv_data_for_packet(const std::vector<uint8_t> &data) {
 
 void AFUScale::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                                    esp_ble_gattc_cb_param_t *param) {
+  // 获取配置的 MAC 地址用于日志（父级连接对象）
+  const char *mac = (this->parent() != nullptr) ? this->parent()->address_str() : "unknown";
+
   switch (event) {
     case ESP_GATTC_OPEN_EVT: {
       if (param->open.status == ESP_GATT_OK) {
-        ESP_LOGI(TAG, "GATT connection opened");
+        ESP_LOGI(TAG, "[%s] GATT connection opened (BLE connected)", mac);
       } else {
-        ESP_LOGW(TAG, "GATT open failed, status=%d", param->open.status);
+        ESP_LOGW(TAG, "[%s] GATT open failed, status=%d", mac, param->open.status);
       }
       break;
     }
@@ -107,16 +116,17 @@ void AFUScale::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gat
       // 通过父级缓存获取 FFB2 特征（服务发现已完成）
       auto *chr = this->parent()->get_characteristic(SERVICE_UUID, NOTIFY_CHAR_UUID);
       if (chr == nullptr) {
-        ESP_LOGW(TAG, "FFB2 notify characteristic not found, scale may not be AFU type");
+        ESP_LOGW(TAG, "[%s] FFB2 notify characteristic not found, scale may not be AFU type",
+                 mac);
         break;
       }
-      ESP_LOGI(TAG, "FFB2 characteristic found, handle=0x%04x", chr->handle);
+      ESP_LOGI(TAG, "[%s] FFB2 characteristic found, handle=0x%04x", mac, chr->handle);
 
       // 注册通知（父级 BLEClientBase 会在 REG_FOR_NOTIFY_EVT 中自动启用 CCCD）
       auto status = esp_ble_gattc_register_for_notify(this->parent()->get_gattc_if(),
                                                       this->parent()->get_remote_bda(), chr->handle);
       if (status != ESP_OK) {
-        ESP_LOGW(TAG, "esp_ble_gattc_register_for_notify failed, status=%d", status);
+        ESP_LOGW(TAG, "[%s] esp_ble_gattc_register_for_notify failed, status=%d", mac, status);
       }
 
       // 向 FFB0 服务下的所有可写特征发送握手包（与 Android sendHandshake 一致，
@@ -126,13 +136,13 @@ void AFUScale::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gat
         for (auto *c : svc->characteristics) {
           if (c->properties & ESP_GATT_CHAR_PROP_BIT_WRITE ||
               c->properties & ESP_GATT_CHAR_PROP_BIT_WRITE_NR) {
-            ESP_LOGD(TAG, "Sending handshake to char handle=0x%04x", c->handle);
+            ESP_LOGD(TAG, "[%s] Sending handshake to char handle=0x%04x", mac, c->handle);
             c->write_value((uint8_t *) HANDSHAKE, sizeof(HANDSHAKE),
                            ESP_GATT_WRITE_TYPE_RSP);
           }
         }
       } else {
-        ESP_LOGW(TAG, "FFB0 service not found in parent cache");
+        ESP_LOGW(TAG, "[%s] FFB0 service not found in parent cache", mac);
       }
       break;
     }
@@ -140,6 +150,10 @@ void AFUScale::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gat
       // 通知注册完成，标记节点为已建立
       if (param->reg_for_notify.status == ESP_GATT_OK) {
         this->node_state = esp32_ble_tracker::ClientState::ESTABLISHED;
+        ESP_LOGI(TAG, "[%s] Notify registered, connection ESTABLISHED", mac);
+      } else {
+        ESP_LOGW(TAG, "[%s] Register for notify failed, status=%d", mac,
+                 param->reg_for_notify.status);
       }
       break;
     }
@@ -151,7 +165,7 @@ void AFUScale::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gat
       break;
     }
     case ESP_GATTC_DISCONNECT_EVT: {
-      ESP_LOGW(TAG, "GATT disconnected");
+      ESP_LOGW(TAG, "[%s] GATT disconnected (reason=0x%x)", mac, param->disconnect.reason);
       break;
     }
     default:
