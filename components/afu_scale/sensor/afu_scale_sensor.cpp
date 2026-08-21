@@ -33,7 +33,12 @@ float AFUScale::get_setup_priority() const {
 
 void AFUScale::setup() {
   ESP_LOGCONFIG(TAG, "Setting up AFU Scale...");
-  // 尝试通过 esp32_ble_tracker 注册监听（由 __init__.py 的 esp32_ble_tracker 触发）
+  // 在启动时明确输出配置的 MAC 地址，便于确认固件已更新且配置正确
+  if (this->parent() != nullptr) {
+    ESP_LOGI(TAG, "AFU Scale configured for BLE MAC: %s", this->parent()->address_str());
+  } else {
+    ESP_LOGW(TAG, "AFU Scale: ble_client parent not set yet");
+  }
 }
 
 void AFUScale::dump_config() {
